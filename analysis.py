@@ -3,7 +3,6 @@ import os
 
 import numpy as np
 from scipy.optimize import brentq
-from scipy.signal import find_peaks
 from scipy.stats import linregress
 
 import files
@@ -29,6 +28,7 @@ def energy_drift(result):
 
 def measure_period(times, rel_pos):
     """Measure the orbital period (seconds) from the simulated path."""
+    # [NumPy: arctan2 + unwrap] angle around the parent, without jumping back at 2*pi
     angle = np.unwrap(np.arctan2(rel_pos[:, 1], rel_pos[:, 0]))
     angle = angle - angle[0]
     if angle[-1] < 0:
@@ -38,6 +38,7 @@ def measure_period(times, rel_pos):
         raise ValueError("the run covers only %.2f orbits, need 1.5; use more years" % orbits)
     n_orbits = int(orbits)
     # the time at which the body finishes orbit 0, 1, 2, ... then fit a straight line through them
+    # [NumPy: interp] linear interpolation; [NumPy: polyfit] degree-1 fit, slope = period
     finish_times = np.interp(2 * math.pi * np.arange(n_orbits + 1), angle, times)
     return np.polyfit(np.arange(n_orbits + 1), finish_times, 1)[0]
 
@@ -47,6 +48,7 @@ def solve_kepler(M, e):
     M = M % (2 * math.pi)
     if e == 0 or M == 0:
         return M
+    # [SciPy: brentq] bracketed root finder; [Python: lambda] small anonymous function f(E)
     return brentq(lambda E: E - e * math.sin(E) - M, 0, 2 * math.pi, xtol=1e-14)
 
 
@@ -82,7 +84,7 @@ def kepler_fit(result, mode):
         t_list.append(period)
     if len(names) < 3:
         raise ValueError("only %d planets usable for the fit, need 3; use more years" % len(names))
-    fit = linregress(np.log(a_list), np.log(t_list))
+    fit = linregress(np.log(a_list), np.log(t_list))  # [SciPy: stats.linregress] slope, intercept, r
     return {"mode": mode, "names": names, "a": np.array(a_list), "T": np.array(t_list),
             "slope": fit.slope, "intercept": fit.intercept, "r2": fit.rvalue**2}
 
@@ -90,36 +92,33 @@ def kepler_fit(result, mode):
 def moon_metrics(result):
     """Moon period, closest and farthest distance from Earth."""
     rel = relative_position(result, "Moon")
-    dist = np.sqrt(np.sum(rel**2, axis=1)) / 1e3
+    dist = np.linalg.norm(rel, axis=1) / 1e3
     return {"period_days": measure_period(result["times"], rel) / DAY,
             "perigee_km": dist.min(), "apogee_km": dist.max()}
 
 
 def two_body_check(bodies, name):
     """Simulate only the Sun and one planet for one orbit, and compare with the exact answer."""
-    planet = None
-    for b in bodies:
-        if b.name == name:
-            planet = b
+    planet = next((body for body in bodies if body.name == name), None)  # [Python: generator expression]
     if planet is None or planet.parent != "Sun":
         raise ValueError(name + " must be a planet")
     sun = bodies[0]
     system = build_system([sun, planet])
     mu = G * (sun.mass + planet.mass)
-    a = planet.a
+    a = planet.semi_major_axis
     period = orbital_period(a, mu)
     result = simulate.run_leapfrog(system, period, period / 5000, 5000)
     simulated = result["pos"][-1, 1] - result["pos"][-1, 0]
-    exact = kepler_position(a, planet.e, result["times"][-1], mu, planet.inc)
+    exact = kepler_position(a, planet.eccentricity, result["times"][-1], mu, planet.inclination_deg)
     error = np.linalg.norm(simulated - exact)
     return error, error / a
 
 
 def compare(first, second):
     """Distance between the two runs for every body, at every saved time."""
-    diff = np.sqrt(np.sum((first["pos"] - second["pos"]) ** 2, axis=2))
+    diff = np.linalg.norm(first["pos"] - second["pos"], axis=2)  # (frames, n, 3) -> (frames, n)
     return {"names": first["names"], "times": first["times"], "diff": diff,
-            "max_diff": dict(zip(first["names"], diff.max(axis=0)))}
+            "max_diff": dict(zip(first["names"], diff.max(axis=0)))}  # [Python: dict(zip(...))]
 
 
 def check_save_resume(bodies):
@@ -161,23 +160,21 @@ def run_checks(result, bodies):
     rows.append(period_check(result, "S2", "Earth period", "Earth", 365.25, 0.001, "365.25 days +/- 0.1%"))
     rows.append(period_check(result, "S3", "Moon period", "Moon", 27.32, 0.005, "27.32 days +/- 0.5%"))
 
-    in_first_year = result["times"] - result["times"][0] <= YEAR
-    dist = np.sqrt(np.sum(relative_position(result, "Moon")[in_first_year] ** 2, axis=1)) / 1e3
+    in_first_year = result["times"] - result["times"][0] <= YEAR  # [NumPy: boolean mask]
+    dist = np.linalg.norm(relative_position(result, "Moon")[in_first_year], axis=1) / 1e3
     ok = dist.min() >= 356000 and dist.max() <= 407000
     rows.append(("S4", "Moon distance, year 1", "%.0f-%.0f km" % (dist.min(), dist.max()), "356000-407000 km", bool(ok)))
 
     fit = kepler_fit(result, "analytic")
     rows.append(("S5", "Kepler slope", "%.4f" % fit["slope"], "1.5 +/- 0.01", bool(abs(fit["slope"] - 1.5) <= 0.01)))
 
-    error, relative = two_body_check(bodies, "Earth")
+    _, relative = two_body_check(bodies, "Earth")
     rows.append(("S6", "Two-body Earth error", "%.2e of orbit" % relative, "below 1e-4", bool(relative < 1e-4)))
 
     full_run = abs((result["times"][-1] - result["times"][0]) / YEAR - 10) < 0.01
-    if full_run:
-        rows.append(("S7", "Run time, 10 years", "%.2f s" % result["runtime"], "below 60 s", bool(result["runtime"] < 60)))
-    else:
-        rows.append(("S7", "Run time, 10 years", "%.2f s" % result["runtime"], "below 60 s", None))
+    passed = bool(result["runtime"] < 60) if full_run else None  # [Python: conditional expression]
+    rows.append(("S7", "Run time, 10 years", "%.2f s" % result["runtime"], "below 60 s", passed))
 
-    same, error = check_save_resume(bodies)
+    same, error = check_save_resume(bodies)  # [Python: tuple unpacking]
     rows.append(("S8", "Save, reload, resume", "identical=%s, err %.0e" % (same, error), "identical, below 1e-9", bool(same and error < 1e-9)))
     return rows

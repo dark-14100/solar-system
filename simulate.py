@@ -1,3 +1,4 @@
+import functools
 import time
 
 import numpy as np
@@ -7,26 +8,25 @@ from physics import acceleration, total_energy
 
 
 def timer(func):
-    """Decorator: times the function it wraps and stores the time in the result."""
+    """[Decorator] Times the function it wraps and stores the time in the result dict."""
 
-    def wrapper(*args, **kwargs):
+    @functools.wraps(func)  # [Decorator: functools.wraps] keeps func's __name__ and docstring
+    def wrapper(*args, **kwargs):  # [*args / **kwargs] accept any arguments and pass them on unchanged
         start = time.perf_counter()
-        result = func(*args, **kwargs)
+        result = func(*args, **kwargs)  # [unpacking] spread the tuple/dict back into the call
         result["runtime"] = time.perf_counter() - start
         return result
 
-    return wrapper
+    return wrapper  # [closure] wrapper remembers func after timer() has returned
 
 
 def make_result(system, times, pos, vel, method, steps):
     """Put everything about a run into one dict, and add the energy at each saved time."""
-    pos = np.array(pos)
+    pos = np.array(pos)  # list of (n, 3) arrays -> one (frames, n, 3) array
     vel = np.array(vel)
-    if not np.all(np.isfinite(pos)):
+    if not np.all(np.isfinite(pos)):  # [NumPy: np.isfinite + np.all] catch NaN/inf anywhere
         raise ValueError("the simulation blew up (NaN); try a smaller timestep")
-    energy = []
-    for k in range(len(pos)):
-        energy.append(total_energy(pos[k], vel[k], system["masses"]))
+    energy = [total_energy(p, v, system["masses"]) for p, v in zip(pos, vel)]  # [Python: zip]
     return {
         "names": system["names"],
         "parents": system["parents"],
@@ -42,13 +42,13 @@ def make_result(system, times, pos, vel, method, steps):
     }
 
 
-@timer
-def run_leapfrog(system, duration, dt, save_every, t0=0.0):
+@timer  # [Decorator syntax] same as run_leapfrog = timer(run_leapfrog)
+def run_leapfrog(system, duration, dt, save_every, t0=0.0):  # [default argument] t0
     """Our own loop: kick-drift-kick leapfrog with a fixed timestep."""
     if duration <= 0 or dt <= 0:
         raise ValueError("duration and timestep must be above 0")
     masses = system["masses"]
-    pos = system["pos"].copy()
+    pos = system["pos"].copy()  # [NumPy: .copy()] do not change the caller's arrays
     vel = system["vel"].copy()
     acc = acceleration(pos, masses)
 
@@ -71,9 +71,9 @@ def run_leapfrog(system, duration, dt, save_every, t0=0.0):
 def derivative(t, y, masses):
     """What solve_ivp needs: how fast the state changes. y = all positions, then all velocities."""
     n = len(masses)
-    pos = y[:3 * n].reshape(n, 3)
+    pos = y[:3 * n].reshape(n, 3)  # [NumPy: slicing + reshape] flat vector -> (n, 3)
     vel = y[3 * n:]
-    return np.concatenate([vel, acceleration(pos, masses).flatten()])
+    return np.concatenate([vel, acceleration(pos, masses).flatten()])  # [NumPy: concatenate/flatten]
 
 
 @timer
@@ -91,11 +91,12 @@ def run_ivp(system, duration, dt, save_every, t0=0.0):
     times = [s * dt for s in save_steps]
 
     y0 = np.concatenate([system["pos"].flatten(), system["vel"].flatten()])
+    # [SciPy: solve_ivp] adaptive 8th-order Runge-Kutta (DOP853); args= passes extra arguments to derivative
     sol = solve_ivp(derivative, (0, times[-1]), y0, method="DOP853", t_eval=times,
                     args=(masses,), rtol=1e-10, atol=1e-6)
     if not sol.success:
         raise ValueError("solve_ivp failed: " + sol.message)
-    pos = sol.y[:3 * n].T.reshape(-1, n, 3)
+    pos = sol.y[:3 * n].T.reshape(-1, n, 3)  # [NumPy: transpose + reshape with -1] (frames, n, 3)
     vel = sol.y[3 * n:].T.reshape(-1, n, 3)
     return make_result(system, [t0 + t for t in times], pos, vel, "ivp", sol.nfev)
 
@@ -113,6 +114,6 @@ def resume_system(system, saved):
     """Start the system from the last saved moment of an earlier run."""
     if saved["names"] != system["names"]:
         raise ValueError("the saved run has different bodies than the data file")
-    system["pos"] = saved["pos"][-1].copy()
+    system["pos"] = saved["pos"][-1].copy()  # [NumPy: negative index] last frame
     system["vel"] = saved["vel"][-1].copy()
     return system

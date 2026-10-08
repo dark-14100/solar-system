@@ -45,52 +45,45 @@ def analyze_kepler(result):
 
 
 def analyze_moon(result):
-    m = analysis.moon_metrics(result)
-    for key in ["period_days", "perigee_km", "apogee_km"]:
-        print("moon %s: %.2f (reference %.2f)" % (key, m[key], analysis.MOON_REFERENCE[key]))
+    moon = analysis.moon_metrics(result)
+    for key, reference in analysis.MOON_REFERENCE.items():
+        print("moon %s: %.2f (reference %.2f)" % (key, moon[key], reference))
     plots.plot_moon(result)
 
 
 def analyze_two_body(bodies):
-    for b in bodies:
-        if b.parent == "Sun":
-            error, relative = analysis.two_body_check(bodies, b.name)
-            print("two-body %-8s error %.0f km (%.1e of its orbit)" % (b.name, error / 1e3, relative))
+    for body in bodies:
+        if isinstance(body, data.Planet):  # [OOP: isinstance] ask the object what class it is
+            error, relative = analysis.two_body_check(bodies, body.name)
+            print("two-body %-8s error %.0f km (%.1e of its orbit)" % (body.name, error / 1e3, relative))
 
 
 def analyze_compare(years):
     bodies = data.load_bodies()
     first = simulate.run(data.build_system(bodies), "leapfrog", years * YEAR, DT, SAVE_EVERY)
     second = simulate.run(data.build_system(bodies), "ivp", years * YEAR, DT, SAVE_EVERY)
-    comp = analysis.compare(first, second)
-    for r in [first, second]:
-        drift = analysis.energy_drift(r)[-1]
-        print("%-9s %.2f s, %d steps, final energy change %.1e" % (r["method"], r["runtime"], r["steps"], drift))
-    worst = max(comp["names"], key=lambda name: comp["max_diff"][name])  # body with the biggest difference
-    print("largest difference between the two: %s, %.0f km" % (worst, comp["max_diff"][worst] / 1e3))
+    comparison = analysis.compare(first, second)
+    for result in [first, second]:
+        drift = analysis.energy_drift(result)[-1]
+        print("%-9s %.2f s, %d steps, final energy change %.1e"
+              % (result["method"], result["runtime"], result["steps"], drift))
+    max_diff = comparison["max_diff"]
+    worst = max(max_diff, key=max_diff.get)  # [Python: max with key=] body with the biggest difference
+    print("largest difference between the two: %s, %.0f km" % (worst, max_diff[worst] / 1e3))
     plots.plot_energy([first, second])
-    plots.plot_compare(comp, first, second)
+    plots.plot_compare(comparison, first, second)
 
 
 def do_analyze(years):
     result = files.load_state()
     bodies = data.load_bodies()
-    try:
-        analyze_kepler(result)
-    except ValueError as e:
-        print("skipped:", e)
-    try:
-        analyze_moon(result)
-    except ValueError as e:
-        print("skipped:", e)
-    try:
-        analyze_two_body(bodies)
-    except ValueError as e:
-        print("skipped:", e)
-    try:
-        analyze_compare(years)
-    except ValueError as e:
-        print("skipped:", e)
+    # [Python: functions are first-class objects] keep (function, argument) pairs in a list
+    steps = [(analyze_kepler, result), (analyze_moon, result), (analyze_two_body, bodies), (analyze_compare, years)]
+    for step, argument in steps:
+        try:
+            step(argument)
+        except ValueError as e:  # one failed analysis does not stop the others
+            print("skipped:", e)
 
 
 def do_plot():
@@ -162,6 +155,9 @@ MENU = {
 }
 
 
+NEEDS_YEARS = {"simulate", "simulate-ivp", "resume", "analyze", "all"}  # [Python: set] fast membership test
+
+
 def ask_years():
     text = input("years [10]: ")
     if text == "":
@@ -176,8 +172,8 @@ def ask_years():
 def menu():
     while True:
         print("\nSolar System Simulator")
-        for key in MENU:
-            print("  " + key + ") " + MENU[key][0])
+        for key, (label, _) in MENU.items():  # [Python: nested tuple unpacking]
+            print("  " + key + ") " + label)
         print("  q) Quit")
         try:
             choice = input("> ").strip()
@@ -186,17 +182,17 @@ def menu():
         if choice == "q":
             return
         if choice in MENU:
-            years = 10.0
-            if MENU[choice][1] in ["simulate", "simulate-ivp", "resume", "analyze", "all"]:
-                years = ask_years()
-            run_command(MENU[choice][1], years)
+            command = MENU[choice][1]
+            years = ask_years() if command in NEEDS_YEARS else 10.0
+            run_command(command, years)
         else:
             print("choose a number from the menu, or q")
 
 
-if len(sys.argv) == 1:
-    menu()
-else:
+def main():
+    if len(sys.argv) == 1:
+        menu()
+        return
     years = 10.0
     if len(sys.argv) > 2:
         try:
@@ -206,3 +202,7 @@ else:
             sys.exit(1)
     ok = run_command(sys.argv[1], years)
     sys.exit(0 if ok else 1)
+
+
+if __name__ == "__main__":  # [Python: entry-point guard] runs only when started directly, not on import
+    main()

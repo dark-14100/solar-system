@@ -35,6 +35,23 @@ Results go to the `outputs/` folder: `state.npz`, `trajectory.csv`, `report.txt`
 | `main.py` | menu and commands |
 | `test_all.py` | tests |
 
+## Python concepts used
+
+Every use is tagged in the code with a comment like `# [NumPy: broadcasting]`. Search for `# [` to find them all.
+
+| Concept | Where |
+| --- | --- |
+| Decorator, `functools.wraps`, closure | `simulate.py`: `timer`, `@timer` on `run_leapfrog` / `run_ivp` |
+| `*args` / `**kwargs`, `*` unpacking | `simulate.py`: `timer.wrapper`; `files.py`: `save_csv` |
+| OOP: class attribute, `__init__`, inheritance, overriding, polymorphism | `data.py`: `Body` -> `Star`, `Planet`, `Moon`, `describe()`; `print_tree` |
+| `isinstance` | `main.py`: `analyze_two_body` |
+| Classes / functions as objects | `data.py`: `BODY_CLASSES`; `main.py`: `do_analyze` step list |
+| Comprehensions, generator expression, `enumerate`, `zip`, `lambda`, `max(key=)` | `data.py`, `analysis.py`, `files.py`, `main.py` |
+| Context manager, exceptions, `if __name__ == "__main__"` | `data.py`, `files.py`, `main.py` |
+| NumPy: arrays, broadcasting, axis reductions, `dot`, `linalg.norm`, slicing, `reshape`, boolean masks, `unwrap`, `interp`, `polyfit`, `savez`/`load` | `physics.py`, `data.py`, `simulate.py`, `analysis.py`, `files.py` |
+| SciPy: `constants`, `integrate.solve_ivp`, `optimize.brentq`, `stats.linregress` | `data.py`, `simulate.py`, `analysis.py` |
+| Matplotlib: `Agg` backend, style sheet, Figure/Axes API, `subplots`, `semilogy`/`loglog`, `bar`, `annotate` | `plots.py` |
+
 ## Notes
 
 - All planets start at their closest point to the Sun on the +x axis, not at their real position on a calendar date.

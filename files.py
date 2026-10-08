@@ -16,10 +16,9 @@ def out_path(name):
 def save_state(result, path=STATE_FILE):
     """Save a whole run to one .npz file."""
     os.makedirs(os.path.dirname(path), exist_ok=True)
-    parents = []
-    for p in result["parents"]:
-        parents.append(p if p is not None else "")
+    parents = [parent or "" for parent in result["parents"]]  # .npz cannot store None
     try:
+        # [NumPy: np.savez] many named arrays in one file; keyword arguments become the keys
         np.savez(path, names=np.array(result["names"]), parents=np.array(parents),
                  colors=np.array(result["colors"]), masses=result["masses"], a=result["a"],
                  times=result["times"], pos=result["pos"], vel=result["vel"],
@@ -33,14 +32,14 @@ def load_state(path=STATE_FILE):
     """Load a run saved by save_state."""
     try:
         data = np.load(path)
-        result = {key: data[key] for key in data.files}
+        result = {key: data[key] for key in data.files}  # [Python: dict comprehension]
     except FileNotFoundError:
         raise ValueError("no saved run found; simulate first")
     except OSError as e:
         raise ValueError("cannot read " + path + ": " + str(e))
-    result["names"] = [str(x) for x in result["names"]]
-    result["parents"] = [str(p) if str(p) != "" else None for p in result["parents"]]
-    result["colors"] = [str(c) for c in result["colors"]]
+    result["names"] = [str(name) for name in result["names"]]
+    result["parents"] = [str(parent) or None for parent in result["parents"]]
+    result["colors"] = [str(color) for color in result["colors"]]
     result["method"] = str(result["method"])
     result["runtime"] = float(result["runtime"])
     result["steps"] = int(result["steps"])
@@ -54,12 +53,11 @@ def save_csv(result, path):
         with open(path, "w", newline="") as f:
             writer = csv.writer(f)
             writer.writerow(["time_s", "body", "x_m", "y_m", "z_m", "vx_ms", "vy_ms", "vz_ms"])
-            for k in range(len(result["times"])):
-                for i in range(len(result["names"])):
-                    row = [result["times"][k], result["names"][i]]
-                    row = row + list(result["pos"][k, i]) + list(result["vel"][k, i])
-                    writer.writerow(row)
-                    rows = rows + 1
+            for k, time_s in enumerate(result["times"]):
+                for i, name in enumerate(result["names"]):
+                    # [NumPy: multi-axis indexing] pos[k, i] = (x, y, z) of body i at frame k
+                    writer.writerow([time_s, name, *result["pos"][k, i], *result["vel"][k, i]])  # [* unpacking]
+                    rows += 1
     except OSError as e:
         raise ValueError("cannot write " + path + ": " + str(e))
     return rows
@@ -77,7 +75,7 @@ def write_report(rows, path):
     """rows: list of (id, name, measured, target, passed)."""
     try:
         with open(path, "w") as f:
-            for id_, name, measured, target, passed in rows:
+            for id_, name, measured, target, passed in rows:  # [Python: tuple unpacking] f-string pads columns
                 f.write(f"{id_:<4}{name:<30}{measured:<30}{target:<22}{verdict(passed)}\n")
     except OSError as e:
         raise ValueError("cannot write " + path + ": " + str(e))

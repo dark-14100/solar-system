@@ -65,7 +65,7 @@ def test_solve_kepler():
 
 
 def test_two_body_earth():
-    error, relative = analysis.two_body_check(bodies, "Earth")
+    _, relative = analysis.two_body_check(bodies, "Earth")
     assert relative < 1e-4
 
 
