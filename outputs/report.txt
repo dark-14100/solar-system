@@ -1,0 +1,8 @@
+S1  Energy drift                  4.99e-09                      below 1e-6            PASS
+S2  Earth period                  365.243 days                  365.25 days +/- 0.1%  PASS
+S3  Moon period                   27.261 days                   27.32 days +/- 0.5%   PASS
+S4  Moon distance, year 1         356951-405292 km              356000-407000 km      PASS
+S5  Kepler slope                  1.5000                        1.5 +/- 0.01          PASS
+S6  Two-body Earth error          3.41e-06 of orbit             below 1e-4            PASS
+S7  Run time, 10 years            4.46 s                        below 60 s            PASS
+S8  Save, reload, resume          identical=True, err 0e+00     identical, below 1e-9 PASS
